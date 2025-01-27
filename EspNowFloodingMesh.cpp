@@ -55,7 +55,7 @@ struct header {
   uint8_t msgId;
   uint8_t length;
   uint32_t p1;
-  time_t time;
+  uint64_t time;
 };
 
 struct mesh_secred_part{
@@ -128,15 +128,24 @@ void espNowFloodingMesh_disableTimeDifferenceCheck(bool disable) {
 
 int8_t led_pin = -1;
 bool led_is_on = false;
+bool LED_ON = LOW;
+bool LED_OFF = HIGH;
 uint8_t led_blink_mode = 0;
 uint32_t recv_packet_ts = 0;
 uint32_t tx_packet_ts = 0;
 
-void espNowFloodingMesh_enableBlink(int8_t pin, uint8_t mode) {
+void espNowFloodingMesh_enableBlink(int8_t pin, uint8_t mode, bool led_on_level) {
     led_pin = pin;
     led_blink_mode = mode;
+    if(led_on_level == HIGH){
+      LED_ON = HIGH;
+      LED_OFF = LOW;
+    } else {
+      LED_ON = LOW;
+      LED_OFF = HIGH;
+    }
     pinMode(led_pin, OUTPUT);
-    digitalWrite(led_pin, HIGH); // turn off
+    digitalWrite(led_pin, LED_OFF); // turn off
 }
 
 void print(int level, const char * format, ... ) {
@@ -411,11 +420,11 @@ void espNowFloodingMesh_loop() {
   
   if (led_blink_mode == LED_BLINK_RX_MODE && led_is_on == true && recv_packet_ts < now - LED_BLINK_TIMEOUT_MS) {
     led_is_on = false;
-    digitalWrite(led_pin, HIGH); // off
+    digitalWrite(led_pin, LED_OFF); // off
   }
   if (led_blink_mode == LED_BLINK_TX_MODE && led_is_on == true && tx_packet_ts < now - LED_BLINK_TIMEOUT_MS) {
     led_is_on = false;
-    digitalWrite(led_pin, HIGH); // off
+    digitalWrite(led_pin, LED_OFF); // off
   }
 
   yield();
@@ -527,6 +536,10 @@ void msg_recv_cb(const uint8_t *data, int len, uint8_t rssi)
 void msg_recv_cb(const uint8_t *data, int len, const uint8_t *mac_addr)
 #endif
 {
+  #ifdef DEBUG_PRINTS
+    Serial.print("TS - msg_recv_cb: "); Serial.println(millis());
+  #endif
+
   // Serial.println("."); // RECEIVE PACKET
   #ifdef DEBUG_PRINTS
   char macStr[18];
@@ -540,7 +553,7 @@ void msg_recv_cb(const uint8_t *data, int len, const uint8_t *mac_addr)
   recv_packet_ts = millis();
 
   if (led_blink_mode == LED_BLINK_RX_MODE) {
-    digitalWrite(led_pin, LOW); // turn on
+    digitalWrite(led_pin, LED_ON); // turn on
     led_is_on = true;
   }
 
@@ -574,12 +587,20 @@ void msg_recv_cb(const uint8_t *data, int len, const uint8_t *mac_addr)
       return;
     }
     rejectedMessageDB.addMessageToHandledList(&m);
+    
+    #ifdef DEBUG_PRINTS
+      Serial.print("TS - Start Decrypt: "); Serial.println(millis());
+    #endif
 
     //memset(&m,0,sizeof(m));
     decrypt((const uint8_t*)data, &m, len);
     #ifdef DEBUG_PRINTS
     Serial.print("REC:");
-    hexDump((uint8_t*)&m, m.encrypted.header.length + sizeof(m.encrypted.header) + 5 );
+    // hexDump((uint8_t*)&m, m.encrypted.header.length + sizeof(m.encrypted.header) + 5 );
+    hexDump((uint8_t*)&m, 256 );
+    Serial.printf("sizeof(m.encrypted.header): %d\n", sizeof(m.encrypted.header));
+    Serial.print("hexDump m.encrypted.data:");
+    hexDump((uint8_t*)&m.encrypted.data, 240 );
     #endif
 
     if (!(m.encrypted.header.msgId == USER_MSG 
@@ -834,9 +855,9 @@ int decrypt(const uint8_t *_from, struct meshFrame *m, int size) {
           esp_aes_context ctx;
           esp_aes_init( &ctx );
           esp_aes_setkey( &ctx, key, 128 );
-          esp_aes_acquire_hardware ();
+          // esp_aes_acquire_hardware ();
           esp_aes_crypt_cbc(&ctx, ESP_AES_DECRYPT, 16, iv, from, to);
-          esp_aes_release_hardware ();
+          // esp_aes_release_hardware ();
           esp_aes_free(&ctx);
 
         #else
@@ -867,13 +888,13 @@ int encrypt(struct meshFrame *m) {
        memcpy((void*)to,(void*)from,16);
      #else
         #ifdef ESP32
-         esp_aes_context ctx;
-         esp_aes_init( &ctx );
-         esp_aes_setkey( &ctx, key, 128 );
-         esp_aes_acquire_hardware();
-         esp_aes_crypt_cbc(&ctx, ESP_AES_ENCRYPT, 16, iv, from, to);
-         esp_aes_release_hardware();
-         esp_aes_free(&ctx);
+          esp_aes_context ctx;
+          esp_aes_init( &ctx );
+          esp_aes_setkey( &ctx, key, 128 );
+          // esp_aes_acquire_hardware();
+          esp_aes_crypt_cbc(&ctx, ESP_AES_ENCRYPT, 16, iv, from, to);
+          // esp_aes_release_hardware();
+          esp_aes_free(&ctx);
         #else
           AES aesLib;
           aesLib.set_key( (byte *)key , sizeof(key));
@@ -958,9 +979,17 @@ uint32_t sendMsgId(uint8_t* msg, int size, uint32_t umsgid, int ttl, int msgId, 
   m.unencrypted.crc16 = calculateCRC(&m);
   #ifdef DEBUG_PRINTS
    Serial.print("Send0:");
-   hexDump((const uint8_t*)&m, size+20);
+  //  hexDump((const uint8_t*)&m, size+20);
+   hexDump((const uint8_t*)&m, 256);
+    Serial.printf("sizeof(m.encrypted.header): %d\n", sizeof(m.encrypted.header));
+    Serial.print("hexDump m.encrypted.data (before encryption):");
+    hexDump((uint8_t*)&m.encrypted.data, size+240 );
   #endif
   rejectedMessageDB.addMessageToHandledList(&m);
+
+  #ifdef DEBUG_PRINTS
+    Serial.print("TS - Start Encrypt: "); Serial.println(millis());
+  #endif
 
   int sendSize = encrypt(&m);
 
@@ -987,7 +1016,7 @@ Serial.print("--->:");
   telemetry_stats.sent_pkt++;
 
   if (led_blink_mode == LED_BLINK_TX_MODE) {
-    digitalWrite(led_pin, LOW); // turn on
+    digitalWrite(led_pin, LED_ON); // turn on
     led_is_on = true;
   }
 

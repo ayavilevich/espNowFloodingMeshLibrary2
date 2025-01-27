@@ -33,7 +33,7 @@
 
     void espNowFloodingMesh_end();
 
-    void espNowFloodingMesh_enableBlink(int8_t pin, uint8_t mode = 1);
+    void espNowFloodingMesh_enableBlink(int8_t pin, uint8_t mode = 1, bool led_on_level = LOW);
 
     void espNowFloodingMesh_setChannel(int channel);
 
