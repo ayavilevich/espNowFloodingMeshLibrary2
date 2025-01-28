@@ -1,9 +1,17 @@
-# ESPNOW flooding mesh library
+# ESPNOW flooding mesh library 2
 
-See example project: https://github.com/leodesigner/esp_mesh_pir_sensor
+Forked from https://github.com/leodesigner/espNowFloodingMeshLibrary2,
+in turn forked from https://github.com/arttupii/espNowFloodingMeshLibrary
 
-ESPNOW flooding mesh library, version 2
-forked from https://github.com/arttupii/espNowFloodingMeshLibrary
+This fork only fixes a few issues I had with leodesigners library, mainly with esp32-C3.
+
+The example files in here seems a bit outdated... I had better success with leodesigners example project: https://github.com/leodesigner/esp_mesh_pir_sensor
+
+I have also created a Home Assistant Add-on: [EspNow2mqtt](https://github.com/314159-r/esp_mesh_mqtt_gateway) providing a gateway for EspNow devices to Home Assistant via MQTT. It is a from a fork of the python gateway by [leodesigner](https://github.com/leodesigner/esp_mesh_mqtt_gateway).
+
+----
+
+From leodesigners repo...
 
 Features added/bugfixes since version 2:
 - a lot of bugfixes and improvements, battle tested with 15+ nodes
