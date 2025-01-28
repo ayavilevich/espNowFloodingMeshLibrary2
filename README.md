@@ -7,7 +7,11 @@ This fork only fixes a few issues I had with leodesigners library, mainly with e
 
 The example files in here seems a bit outdated... I had better success with leodesigners example project: https://github.com/leodesigner/esp_mesh_pir_sensor
 
-I have also created a Home Assistant Add-on: [EspNow2mqtt](https://github.com/314159-r/esp_mesh_mqtt_gateway) providing a gateway for EspNow devices to Home Assistant via MQTT. It is a from a fork of the python gateway by [leodesigner](https://github.com/leodesigner/esp_mesh_mqtt_gateway).
+----
+
+**I have also created a Home Assistant Add-on: [EspNow2mqtt](https://github.com/314159-r/esp_mesh_mqtt_gateway)** &emsp; <img src="https://github.com/314159-r/esp_mesh_mqtt_gateway/blob/master/images/home-assistant-logo.png"> \
+Providing a gateway for EspNow devices to Home Assistant via MQTT. 
+It is a from a fork of the python gateway by [leodesigner](https://github.com/leodesigner/esp_mesh_mqtt_gateway).
 
 ----
 
