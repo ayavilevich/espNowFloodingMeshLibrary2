@@ -55,7 +55,11 @@ struct header {
   uint8_t msgId;
   uint8_t length;
   uint32_t p1;
-  uint64_t time;
+  #ifdef ESP32
+    uint64_t time;    // time_t isn't updated to 64-bit for ESP32 in arduino-ide
+  #else
+    time_t time;
+  #endif
 };
 
 struct mesh_secred_part{
@@ -697,7 +701,9 @@ void msg_recv_cb(const uint8_t *data, int len, const uint8_t *mac_addr)
               } else {
                 if (syncronized) {
                   sendMsg(NULL, 0, 0, SYNC_TIME_MSG); // only for the direct nodes
-                  print(3,"Send time sync message by node directly (Requested)");
+                  #ifdef DEBUG_PRINTS
+                    print(3,"Send time sync message by node directly (Requested)");
+                  #endif
                 } else {
                   ok = true; // let's forward sync time request if we are not in sync
                 }
@@ -715,7 +721,9 @@ void msg_recv_cb(const uint8_t *data, int len, const uint8_t *mac_addr)
               } else {
                 if (syncronized) {
                   sendMsg(NULL, 0, 0, SYNC_TIME_MSG); // only for the direct nodes
-                  print(3,"Annonce + Send time sync message by node directly (Requested)");
+                  #ifdef DEBUG_PRINTS
+                    print(3,"Annonce + Send time sync message by node directly (Requested)");
+                  #endif
                 }
               }
               if (espNowFloodingMesh_receive_cb) {
@@ -748,7 +756,9 @@ void msg_recv_cb(const uint8_t *data, int len, const uint8_t *mac_addr)
                   Serial.print("    New time: "); Serial.print(asctime(localtime(&currentTime)));
                 #endif
                 syncronized = true;
-                print(3,"Time syncronised with mesh");
+                #ifdef DEBUG_PRINTS
+                  print(3,"Time syncronised with mesh");
+                #endif
               }
             }
         }
