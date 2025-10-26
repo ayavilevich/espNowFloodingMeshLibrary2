@@ -574,8 +574,9 @@ void msg_recv_cb(const uint8_t *data, int len, const uint8_t *mac_addr)
   m.unencrypted.set(data);
 
     if ( (unsigned int) myBsid != m.unencrypted.getBsid() ) {
-      // Serial.println(myBsid, HEX);
-      // Serial.println(m.unencrypted.getBsid(), HEX);
+      Serial.println("BSID mismatch:");
+      Serial.println(myBsid, HEX);
+      Serial.println(m.unencrypted.getBsid(), HEX);
       return;
     }
     if ( (unsigned int) len >= sizeof(struct meshFrame) ) return;
@@ -811,7 +812,7 @@ void espNowFloodingMesh_end() {
 
 
 #ifndef USE_RAW_801_11
-void espNowFloodingMesh_begin(int channel, int bsid, bool disconnect_wifi ) {
+void espNowFloodingMesh_begin(int channel, int bsid, bool disconnect_wifi, wifi_interface_t iface ) {
 #else
 void espNowFloodingMesh_begin(int channel, char bsId[6], bool disconnect_wifi) {
 #endif
@@ -830,7 +831,7 @@ void espNowFloodingMesh_begin(int channel, char bsId[6], bool disconnect_wifi) {
 
   #ifndef USE_RAW_801_11
       espnowBroadcast_cb(msg_recv_cb);
-      espnowBroadcast_begin(channel);
+      espnowBroadcast_begin(channel, iface);
   #else
         wifi_802_11_begin(bsId, channel);
         wifi_802_receive_cb(msg_recv_cb);

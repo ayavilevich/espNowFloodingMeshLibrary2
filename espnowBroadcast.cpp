@@ -39,6 +39,7 @@ long send_ts = 0;
 #endif
 
 #ifdef ESP32
+// will return ESP_NOW_SEND_SUCCESS=0 in sending callback function if the data is received successfully on the MAC layer. Otherwise, it will return ESP_NOW_SEND_FAIL=1.
 static void msg_send_cb(const uint8_t* mac, esp_now_send_status_t sendStatus)
 {
   #ifdef DEBUG_PRINTS
@@ -59,12 +60,17 @@ static void msg_send_cb(u8* mac_addr, u8 status)
 }
 #endif
 
-void espnowBroadcast_begin(int channel) {
+void espnowBroadcast_begin(int channel, wifi_interface_t iface) {
  
   // takes too much time - now it's external
   //WiFi.mode(WIFI_STA);
   //WiFi.disconnect();
 
+  #ifdef DEBUG_PRINTS
+  esp_log_level_set("esp_now", ESP_LOG_VERBOSE);
+  #endif
+
+  // https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-reference/network/esp_now.html
   if (esp_now_init() != ESP_OK) {
     Serial.println("Error initializing ESP-NOW");
     return;
@@ -83,10 +89,14 @@ void espnowBroadcast_begin(int channel) {
     }
     slave.channel = channel; // pick a channel
     slave.encrypt = 0; // no encryption
+    slave.ifidx = iface;
 
     const esp_now_peer_info_t *peer = &slave;
     const uint8_t *peer_addr = slave.peer_addr;
     esp_now_add_peer(peer);
+    #ifdef DEBUG_PRINTS
+    Serial.printf("espnowBroadcast, added peer on channel %d and interface %d\n", channel, iface);
+    #endif
   #else
     esp_now_set_self_role(ESP_NOW_ROLE_SLAVE);
     esp_now_add_peer((u8*)broadcast_mac, ESP_NOW_ROLE_SLAVE, channel, NULL, 0);
@@ -103,7 +113,12 @@ void espnowBroadcast_send(const uint8_t *d, int len){
     return;
   }
   #ifdef ESP32
-    esp_now_send(broadcast_mac, (uint8_t*)(d), len);
+    esp_err_t result = esp_now_send(broadcast_mac, (uint8_t*)(d), len);
+    #ifdef DEBUG_PRINTS
+    Serial.print("Result sending the data: ");
+    Serial.println(result, HEX);
+    // 0x306C == ESP_ERR_ESPNOW_IF
+    #endif
   #else
     #ifdef DEBUG_PRINTS
     //Serial.print("*");

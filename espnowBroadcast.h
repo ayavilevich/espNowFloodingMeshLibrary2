@@ -2,7 +2,7 @@
 #define espnowBroadcast_H
 #include <Arduino.h>
 
-void espnowBroadcast_begin(int channel);
+void espnowBroadcast_begin(int channel, wifi_interface_t iface = WIFI_IF_STA);
 void espnowBroadcast_send(const uint8_t *d, int len);
 void espnowBroadcast_cb(void(*cb)(const uint8_t *, int, const uint8_t *));
 

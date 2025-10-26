@@ -26,7 +26,7 @@
 #define MAX_ALLOWED_TIME_DIFFERENCE_IN_MESSAGES 3 //if message time differens more than this from RTC, reject message
 
     #ifndef USE_RAW_801_11
-    void espNowFloodingMesh_begin(int channel, int bsid, bool disconnect_wifi = true);
+    void espNowFloodingMesh_begin(int channel, int bsid, bool disconnect_wifi = true, wifi_interface_t iface = WIFI_IF_STA);
     #else
     void espNowFloodingMesh_begin(int channel, char bsId[6], bool disconnect_wifi = true);
     #endif
