@@ -25,6 +25,9 @@
 #define REJECTED_LIST_SIZE 50
 #define REQUEST_REPLY_DATA_BASE_SIZE 30
 
+#define MAX_ESPNOW_MESSAGE_SIZE 250 // AKA ESP_NOW_MAX_DATA_LEN
+// Currently, ESP-NOW supports two versions: v1.0 and v2.0. The maximum packet length supported by v2.0 devices is 1470 (ESP_NOW_MAX_DATA_LEN_V2) bytes, while the maximum packet length supported by v1.0 devices is 250 (ESP_NOW_MAX_DATA_LEN) bytes.
+
 #define ALLOW_TIME_ERROR_IN_SYNC_MESSAGE false //Decrease security. false=Validate sync messages against own RTC time
 
 // 10 - 300 sec
@@ -50,23 +53,7 @@ int myBsid = 0x112233;
 
 telemetry_stats_st telemetry_stats;
 
-#pragma pack(push,1)
-struct header {
-  uint8_t msgId;
-  uint8_t length;
-  uint32_t p1;
-  #ifdef ESP32
-    uint64_t time;    // time_t isn't updated to 64-bit for ESP32 in arduino-ide
-  #else
-    time_t time;
-  #endif
-};
-
-struct mesh_secred_part{
-  struct header header;
-  uint8_t data[240];
-};
-
+#pragma pack(push,1) // protocol data structures - no padding
 struct mesh_unencrypted_part {
   unsigned char bsid[3];
   uint8_t ttl;
@@ -88,9 +75,28 @@ struct mesh_unencrypted_part {
   }
 };
 
+struct header {
+  uint8_t msgId;
+  uint8_t length;
+  uint32_t p1;
+  #ifdef ESP32
+    uint64_t time;    // time_t isn't updated to 64-bit for ESP32 in arduino-ide
+  #else
+    time_t time;
+  #endif
+};
+
+// we use AES which needs data to be in 16byte blocks, so reduce max payload size to make encrypted part be 16byte multiple
+#define MAX_FLOODING_MESH_ENCRYPTED_PART_SIZE (((MAX_ESPNOW_MESSAGE_SIZE - sizeof(struct mesh_unencrypted_part)) / 16) * 16) // would be 240 bytes
+#define MAX_FLOODING_MESH_MESSAGE_SIZE ( MAX_FLOODING_MESH_ENCRYPTED_PART_SIZE - sizeof(struct header))
+
+struct mesh_secred_part{
+  struct header header;
+  uint8_t data[MAX_FLOODING_MESH_MESSAGE_SIZE];
+};
+
 typedef struct mesh_unencrypted_part unencrypted_t;
 #define SECRED_PART_OFFSET sizeof(unencrypted_t)
-
 
 struct meshFrame{
   unencrypted_t unencrypted;
@@ -574,12 +580,19 @@ void msg_recv_cb(const uint8_t *data, int len, const uint8_t *mac_addr)
   m.unencrypted.set(data);
 
     if ( (unsigned int) myBsid != m.unencrypted.getBsid() ) {
+      #ifdef DEBUG_PRINTS
       Serial.println("BSID mismatch:");
       Serial.println(myBsid, HEX);
       Serial.println(m.unencrypted.getBsid(), HEX);
+      #endif
       return;
     }
-    if ( (unsigned int) len >= sizeof(struct meshFrame) ) return;
+    if ( (unsigned int) len > sizeof(struct meshFrame) ) {
+      #ifdef DEBUG_PRINTS
+      Serial.printf("Message size mismatch: %d/%d\n", len, sizeof(struct meshFrame));
+      #endif
+      return;
+    }
 
     int messageStatus = rejectedMessageDB.isMessageInHandledList(&m);
     if ( messageStatus != 0 ) {
@@ -602,10 +615,10 @@ void msg_recv_cb(const uint8_t *data, int len, const uint8_t *mac_addr)
     #ifdef DEBUG_PRINTS
     Serial.print("REC:");
     // hexDump((uint8_t*)&m, m.encrypted.header.length + sizeof(m.encrypted.header) + 5 );
-    hexDump((uint8_t*)&m, 256 );
+    hexDump((uint8_t*)&m, sizeof(struct meshFrame) );
     Serial.printf("sizeof(m.encrypted.header): %d\n", sizeof(m.encrypted.header));
     Serial.print("hexDump m.encrypted.data:");
-    hexDump((uint8_t*)&m.encrypted.data, 240 );
+    hexDump((uint8_t*)&m.encrypted.data, m.encrypted.header.length);
     #endif
 
     if (!(m.encrypted.header.msgId == USER_MSG 
@@ -618,7 +631,7 @@ void msg_recv_cb(const uint8_t *data, int len, const uint8_t *mac_addr)
         return;
     }
 
-    if (m.encrypted.header.length >= 0 && m.encrypted.header.length < (sizeof(m.encrypted.data) ) ) {
+    if (m.encrypted.header.length >= 0 && m.encrypted.header.length <= (sizeof(m.encrypted.data) ) ) {
       uint16_t crc = m.unencrypted.crc16;
       uint16_t crc16 = calculateCRC(&m);
 
@@ -772,18 +785,20 @@ void msg_recv_cb(const uint8_t *data, int len, const uint8_t *mac_addr)
         }
       } else {
       #ifdef DEBUG_PRINTS
+        // Message crc mismatch
         Serial.print("#CRC: ");Serial.print(crc16);Serial.print(" "),Serial.println(crc);
         for (int i=0;i<m.encrypted.header.length;i++){
           Serial.print("0x");Serial.print(data[i],HEX);Serial.print(",");
         }
-        Serial.println();
-        hexDump((uint8_t*)&m,200);
-        Serial.println();
-        hexDump((uint8_t*)data,200);
+        // Serial.println();
+        // hexDump((uint8_t*)&m,200);
+        // Serial.println();
+        // hexDump((uint8_t*)data,200);
        #endif
       }
     } else {
       #ifdef DEBUG_PRINTS
+      // invalid message length
       Serial.print("Invalid message received:"); Serial.println(0,HEX);
       hexDump(data,len);
       #endif
@@ -849,11 +864,15 @@ void espNowFloodingMesh_secredkey(const unsigned char key[16]) {
   memcpy(aes_secredKey, key, sizeof(aes_secredKey));
 }
 
+// size is encrypted part and also the unencrypted header together
+// assume encrypted part size is multiple of 16
 int decrypt(const uint8_t *_from, struct meshFrame *m, int size) {
   unsigned char iv[16];
   memcpy(iv,ivKey,sizeof(iv));
 
-  uint8_t to[2*16];
+  size-=SECRED_PART_OFFSET; // calc size of encrypted part only
+
+  uint8_t to[2*16]; // why 2*16 ?
   for (int i=0; i<size; i=i+16) {
       const uint8_t *from = _from + i + SECRED_PART_OFFSET;
       uint8_t *key = aes_secredKey;
@@ -878,19 +897,20 @@ int decrypt(const uint8_t *_from, struct meshFrame *m, int size) {
         #endif
       #endif
 
-      if ((i+SECRED_PART_OFFSET+16) <= sizeof(m->encrypted)) {
-        memcpy((uint8_t*)m+i+SECRED_PART_OFFSET, to, 16);
-      }
+      memcpy((uint8_t*)m+i+SECRED_PART_OFFSET, to, 16);
   }
   return 0;
 }
 
 int encrypt(struct meshFrame *m) {
-  int size = ((m->encrypted.header.length + sizeof(m->encrypted.header))/16)*16+16;
+  int size = (m->encrypted.header.length + sizeof(m->encrypted.header)); // size of bytes to encrypt
+  if (size % 16 != 0) { // pad only if needed
+    size = (size/16)*16+16; // pad to 16 bytes multiple
+  }
 
   unsigned char iv[16];
   memcpy(iv,ivKey,sizeof(iv));
-  uint8_t to[2*16];
+  uint8_t to[2*16]; // why 2*16 ?
 
   for(int i=0;i<size;i=i+16) {
       uint8_t *from = (uint8_t *)m+i+SECRED_PART_OFFSET;
@@ -957,7 +977,19 @@ bool forwardMsg(const uint8_t *data, int len) {
 
 uint32_t sendMsgId(uint8_t* msg, int size, uint32_t umsgid, int ttl, int msgId, void *ptr) {
   uint32_t ret = 0;
-  if ( (unsigned int) size >= sizeof(struct mesh_secred_part) ) {
+
+  // debug protocol sizes
+  #ifdef DEBUG_PRINTS
+  Serial.printf("sizeof(struct header): %d\n", sizeof(struct header));
+  Serial.printf("sizeof(struct mesh_secred_part): %d\n", sizeof(struct mesh_secred_part));
+  Serial.printf("sizeof(struct mesh_unencrypted_part): %d\n", sizeof(struct mesh_unencrypted_part));
+  Serial.printf("sizeof(struct meshFrame): %d\n", sizeof(struct meshFrame));
+  Serial.printf("size to send: %d\n", size);
+  Serial.printf("MAX_FLOODING_MESH_MESSAGE_SIZE: %d\n", MAX_FLOODING_MESH_MESSAGE_SIZE);
+  #endif
+
+  // check if payload size is not too big
+  if ( (unsigned int) size > MAX_FLOODING_MESH_MESSAGE_SIZE ) {
     #ifdef DEBUG_PRINTS
     Serial.println("espNowFloodingMesh_send: Invalid size");
     #endif
@@ -991,10 +1023,10 @@ uint32_t sendMsgId(uint8_t* msg, int size, uint32_t umsgid, int ttl, int msgId, 
   #ifdef DEBUG_PRINTS
    Serial.print("Send0:");
   //  hexDump((const uint8_t*)&m, size+20);
-   hexDump((const uint8_t*)&m, 256);
+    hexDump((const uint8_t*)&m, sizeof(struct meshFrame));
     Serial.printf("sizeof(m.encrypted.header): %d\n", sizeof(m.encrypted.header));
     Serial.print("hexDump m.encrypted.data (before encryption):");
-    hexDump((uint8_t*)&m.encrypted.data, size+240 );
+    hexDump((uint8_t*)&m.encrypted.data, size );
   #endif
   rejectedMessageDB.addMessageToHandledList(&m);
 
@@ -1004,18 +1036,18 @@ uint32_t sendMsgId(uint8_t* msg, int size, uint32_t umsgid, int ttl, int msgId, 
 
   int sendSize = encrypt(&m);
 
-/*
-struct meshFrame mm;
-Serial.print("--->:");
-decrypt((const uint8_t*)&m, &mm, sendSize);
-Serial.print("--->:");
-hexDump((const uint8_t*)&mm, size+20);
-Serial.print("--->:");
-*/
-
   #ifdef DEBUG_PRINTS
     Serial.print("Send[RAW]:");
     hexDump((const uint8_t*)&m, sendSize);
+
+// decrypt test
+// struct meshFrame mm; // too heavy on the stack?
+// Serial.print("--->:");
+// decrypt((const uint8_t*)&m, &mm, sendSize);
+// Serial.print("--->:");
+// hexDump((const uint8_t*)&mm, sizeof(struct meshFrame));
+// Serial.print("--->:");
+
   #endif
   // Serial.println("#"); // SEND PACKET
 

@@ -115,8 +115,12 @@ void espnowBroadcast_send(const uint8_t *d, int len){
   #ifdef ESP32
     esp_err_t result = esp_now_send(broadcast_mac, (uint8_t*)(d), len);
     #ifdef DEBUG_PRINTS
-    Serial.print("Result sending the data: ");
-    Serial.println(result, HEX);
+    if (result == ESP_OK) {
+      Serial.printf("Success sending %d bytes of data\n", len);
+    } else {
+      Serial.printf("Failed sending %d bytes of data, error: %02x, %d\n", len, result, result - ESP_ERR_ESPNOW_BASE);
+    }
+    // 0x3066 == ESP_ERR_ESPNOW_ARG
     // 0x306C == ESP_ERR_ESPNOW_IF
     #endif
   #else
