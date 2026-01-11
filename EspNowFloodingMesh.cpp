@@ -3,6 +3,7 @@
     #include <esp_now.h>
     #include <WiFi.h>
   #endif
+  #include "esp_wifi.h" // for wifi_interface_t
   #include <rom/crc.h>
   #include "mbedtls/aes.h"
 #else
